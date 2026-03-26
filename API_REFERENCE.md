@@ -6,7 +6,7 @@ This document covers all backend API routes in the Next.js App Router applicatio
 
 ### Authentication
 
-- All routes (except `/api/auth/*` and `/api/admin/signup`) require authentication via `getServerSession(authOptions)`
+- All routes (except `/api/auth/*`) require authentication via `getServerSession(authOptions)`
 - Session is stored in HTTP-only cookies
 - Unauthorized requests return `401 Unauthorized`
 - Role-based access control: `SUPERADMIN`, `SCHOOLADMIN`, `TEACHER`, `STUDENT`
@@ -130,40 +130,6 @@ All fields optional
 ---
 
 ## Admin
-
-### `POST /api/admin/signup`
-
-**Purpose**: Create new user account (public signup)
-
-**Methods**: `POST`
-
-**Authentication**: Not required
-
-**Request Body**:
-```json
-{
-  "name": "string",
-  "email": "string",
-  "password": "string",
-  "role": "SUPERADMIN | SCHOOLADMIN | TEACHER | STUDENT"
-}
-```
-
-**Response** (201):
-```json
-{
-  "user": {
-    "id": "string",
-    "name": "string",
-    "email": "string",
-    "role": "string"
-  }
-}
-```
-
-**Error Cases**:
-- `400` - Missing parameters or email already exists
-- `500` - Database schema out of sync (P2022)
 
 ---
 
@@ -1034,12 +1000,11 @@ When unliking: `liked: false`, `likes` is decremented.
 
 ---
 
-## Appendix: Complete Route List (87)
+## Appendix: Complete Route List (86)
 
-1. `app/api/admin/signup/route.ts`
-2. `app/api/attendance/mark/route.ts`
-3. `app/api/attendance/view/route.ts`
-4. `app/api/auth/[...nextauth]/route.ts`
+1. `app/api/attendance/mark/route.ts`
+2. `app/api/attendance/view/route.ts`
+3. `app/api/auth/[...nextauth]/route.ts`
 5. `app/api/certificates/assign/route.ts`
 6. `app/api/certificates/list/route.ts`
 7. `app/api/certificates/template/create/route.ts`
@@ -1121,6 +1086,6 @@ When unliking: `liked: false`, `likes` is decremented.
 83. `app/api/teacher-audit/teachers/route.ts`
 84. `app/api/teacher/create/route.ts`
 85. `app/api/teacher/list/route.ts`
-86. `app/api/user/change-password/route.ts`
-87. `app/api/user/me/route.ts`
+85. `app/api/user/change-password/route.ts`
+86. `app/api/user/me/route.ts`
 
