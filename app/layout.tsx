@@ -19,8 +19,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "sms",
-  description: "Developed by shnakar",
+  title: "Timelly - School ERP & Management Software",
+  description:
+    "Timelly is a powerful School ERP and management software for handling student data, attendance tracking,staff management, and real-time notifications. Perfect solution for modern schools and institutions.",
 };
 
 export default function RootLayout({
