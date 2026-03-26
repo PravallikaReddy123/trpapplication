@@ -1,0 +1,550 @@
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/authOptions";
+import prisma from "@/lib/db";
+import bcrypt from "bcryptjs";
+import { Role } from "@prisma/client";
+import { emailLocalPartFromFullName, normalizeEmailDomain, schoolDomainFromName } from "@/lib/schoolEmail";
+import { randomUUID } from "crypto";
+
+export async function POST(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+
+    if (!session) {
+      return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+    }
+
+    console.log("Student creation request received");
+
+    let schoolId = session.user.schoolId;
+
+    // Fallback: find school where the admin belongs
+    if (!schoolId) {
+      const adminSchool = await prisma.school.findFirst({
+        where: { admins: { some: { id: session.user.id } } },
+        select: { id: true },
+      });
+      schoolId = adminSchool?.id ?? null;
+
+      if (schoolId) {
+        // persist the school on the user for future requests
+        await prisma.user.update({
+          where: { id: session.user.id },
+          data: { schoolId },
+        });
+      }
+    }
+
+    if (!schoolId) {
+      return NextResponse.json(
+        { message: "School not found in session" },
+        { status: 400 }
+      );
+    }
+
+    const body = await req.json();
+    console.log("Received student data:", {
+      name: body.name,
+      fatherName: body.fatherName,
+      aadhaarNo: body.aadhaarNo ? "***" : undefined,
+      phoneNo: body.phoneNo,
+      email: body.email,
+      dob: body.dob,
+      classId: body.classId,
+      totalFee: body.totalFee,
+      discountPercent: body.discountPercent,
+    });
+
+    const {
+      applicationId,
+      name,
+      fatherName,
+      aadhaarNo,
+      phoneNo,
+      email: emailInput,
+      dob,
+      classId: classIdInput,
+      address: addressInput,
+      totalFee: totalFeeInput,
+      discountPercent: discountPercentInput,
+      rollNo,
+      gender: genderInput,
+      previousSchool: previousSchoolInput,
+      // Optional admission fields to store alongside the student
+      previousSchoolAddress,
+      parentOccupation,
+      officeAddress,
+      parentAadharNo,
+      parentWhatsapp,
+      bankAccountNo,
+      houseNo,
+      street,
+      city,
+      town,
+      state,
+      pinCode,
+      firstLanguage,
+      nationality,
+      languagesAtHome,
+      caste,
+      religion,
+      emergencyFatherNo,
+      emergencyMotherNo,
+      emergencyGuardianNo,
+    } = body;
+
+    let effectiveName = name;
+    let effectiveFatherName = fatherName;
+    let effectiveAadhaarNo = aadhaarNo;
+    let effectivePhoneNo = phoneNo;
+    let effectiveEmailInput = emailInput;
+    let effectiveDob = dob;
+    let effectiveClassIdInput = classIdInput;
+    let effectiveAddressInput = addressInput;
+    let effectiveTotalFeeInput = totalFeeInput;
+    let effectiveDiscountPercentInput = discountPercentInput;
+    let effectiveRollNo = rollNo;
+    let effectiveGenderInput = genderInput;
+    let effectivePreviousSchoolInput = previousSchoolInput;
+
+    let applicationToLink: { id: string } | null = null;
+    if (typeof applicationId === "string" && applicationId.trim()) {
+      const app = await prisma.studentApplication.findFirst({
+        where: { id: applicationId.trim(), schoolId },
+        include: { class: { select: { id: true } } },
+      });
+      if (!app) {
+        return NextResponse.json({ message: "Admission application not found" }, { status: 400 });
+      }
+      if (app.studentId) {
+        return NextResponse.json({ message: "This application is already converted to a student" }, { status: 400 });
+      }
+
+      const fullName = `${app.firstName} ${app.middleName ? `${app.middleName} ` : ""}${app.lastName}`.trim();
+      effectiveName = fullName;
+      effectiveFatherName = app.parentName;
+      effectiveAadhaarNo = app.aadharNo;
+      effectivePhoneNo = app.parentPhone;
+      effectiveEmailInput = app.parentEmail;
+      effectiveDob = app.dateOfBirth.toISOString();
+      effectiveClassIdInput = app.classId ?? null;
+      effectiveAddressInput = `${app.houseNo}, ${app.street}, ${app.town ? `${app.town}, ` : ""}${app.city}, ${app.state} - ${app.pinCode}`;
+      effectiveTotalFeeInput = app.totalFee ?? effectiveTotalFeeInput;
+      effectiveDiscountPercentInput = app.discountPercent ?? effectiveDiscountPercentInput;
+      effectiveGenderInput = app.gender === "MALE" ? "Male" : "Female";
+      effectivePreviousSchoolInput = app.previousSchoolName;
+      applicationToLink = { id: app.id };
+    }
+
+    // Validate all required fields
+    if (!effectiveName || typeof effectiveName !== "string" || !effectiveName.trim()) {
+      console.error("Validation failed: Student name is required", { name, type: typeof name });
+      return NextResponse.json(
+        { message: "Student name is required" },
+        { status: 400 }
+      );
+    }
+    if (!effectiveDob) {
+      console.error("Validation failed: Date of birth is required", { dob, type: typeof dob });
+      return NextResponse.json(
+        { message: "Date of birth (dob) is required" },
+        { status: 400 }
+      );
+    }
+    if (!effectiveFatherName || typeof effectiveFatherName !== "string" || !effectiveFatherName.trim()) {
+      console.error("Validation failed: Father's name is required", { fatherName, type: typeof fatherName });
+      return NextResponse.json(
+        { message: "Father's name is required" },
+        { status: 400 }
+      );
+    }
+    if (!effectiveAadhaarNo || typeof effectiveAadhaarNo !== "string" || !effectiveAadhaarNo.trim()) {
+      console.error("Validation failed: Aadhaar number is required", { aadhaarNo: aadhaarNo ? "***" : undefined, type: typeof aadhaarNo });
+      return NextResponse.json(
+        { message: "Aadhaar number is required" },
+        { status: 400 }
+      );
+    }
+    if (!effectivePhoneNo || typeof effectivePhoneNo !== "string" || !effectivePhoneNo.trim()) {
+      console.error("Validation failed: Phone number is required", { phoneNo, type: typeof phoneNo });
+      return NextResponse.json(
+        { message: "Phone number is required" },
+        { status: 400 }
+      );
+    }
+
+    // Normalize classId - convert empty string to null
+    const classId = effectiveClassIdInput && typeof effectiveClassIdInput === "string" && effectiveClassIdInput.trim() 
+      ? effectiveClassIdInput.trim() 
+      : null;
+
+    // Validate and parse totalFee
+    let totalFee: number;
+    if (typeof effectiveTotalFeeInput === "number") {
+      totalFee = effectiveTotalFeeInput;
+    } else if (typeof effectiveTotalFeeInput === "string" && effectiveTotalFeeInput.trim()) {
+      totalFee = Number(effectiveTotalFeeInput);
+    } else if (effectiveTotalFeeInput === null || effectiveTotalFeeInput === undefined || effectiveTotalFeeInput === "") {
+      console.error("Validation failed: totalFee is required", { totalFeeInput, type: typeof totalFeeInput });
+      return NextResponse.json(
+        { message: "totalFee is required and must be a number" },
+        { status: 400 }
+      );
+    } else {
+      totalFee = Number(effectiveTotalFeeInput);
+    }
+    if (Number.isNaN(totalFee) || totalFee <= 0) {
+      console.error("Validation failed: totalFee must be a positive number", { totalFee, totalFeeInput });
+      return NextResponse.json(
+        { message: "totalFee must be a positive number" },
+        { status: 400 }
+      );
+    }
+
+    // Validate and parse discountPercent
+    let safeDiscount: number;
+    if (typeof effectiveDiscountPercentInput === "number") {
+      safeDiscount = effectiveDiscountPercentInput;
+    } else if (typeof effectiveDiscountPercentInput === "string" && effectiveDiscountPercentInput.trim()) {
+      safeDiscount = Number(effectiveDiscountPercentInput);
+    } else {
+      safeDiscount = 0;
+    }
+    if (Number.isNaN(safeDiscount) || safeDiscount < 0 || safeDiscount > 100) {
+      return NextResponse.json(
+        { message: "discountPercent must be a number between 0 and 100" },
+        { status: 400 }
+      );
+    }
+
+    // Validate DOB is a valid date
+    const dobDate = new Date(effectiveDob);
+    if (isNaN(dobDate.getTime())) {
+      console.error("Validation failed: Invalid date of birth format");
+      return NextResponse.json(
+        { message: "Invalid date of birth format" },
+        { status: 400 }
+      );
+    }
+
+    // Validate classId if provided
+    if (classId) {
+      const classExists = await prisma.class.findUnique({
+        where: { id: classId },
+        select: { id: true, schoolId: true },
+      });
+      if (!classExists) {
+        console.error("Validation failed: Class not found", classId);
+        return NextResponse.json(
+          { message: "Class not found" },
+          { status: 400 }
+        );
+      }
+      if (classExists.schoolId !== schoolId) {
+        console.error("Validation failed: Class does not belong to school");
+        return NextResponse.json(
+          { message: "Class does not belong to your school" },
+          { status: 400 }
+        );
+      }
+    }
+
+    const password = dobDate.toISOString().split("T")[0].replace(/-/g, "");
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Check for duplicate aadhaar number before transaction
+    const aadhaarTrimmed = String(effectiveAadhaarNo).trim();
+    // Remove any spaces or dashes from aadhaar number for validation
+    const aadhaarCleaned = aadhaarTrimmed.replace(/[\s-]/g, "");
+    if (aadhaarCleaned.length < 12) {
+      console.error("Validation failed: Aadhaar number must be at least 12 digits", { length: aadhaarCleaned.length });
+      return NextResponse.json(
+        { message: "Aadhaar number must be at least 12 digits" },
+        { status: 400 }
+      );
+    }
+    const existingAadhaar = await prisma.student.findUnique({
+      where: { aadhaarNo: aadhaarCleaned },
+      select: { id: true },
+    });
+    if (existingAadhaar) {
+      console.error("Validation failed: Aadhaar number already exists");
+      return NextResponse.json(
+        { message: "Aadhaar number already exists" },
+        { status: 400 }
+      );
+    }
+
+    const student = await prisma.$transaction(
+      async (tx) => {
+        const [school, emailSettings] = await Promise.all([
+          tx.school.findUnique({ where: { id: schoolId }, select: { name: true } }),
+          tx.schoolSettings.findUnique({ where: { schoolId }, select: { emailDomain: true } }),
+        ]);
+        const schoolDomain =
+          normalizeEmailDomain(emailSettings?.emailDomain) ?? schoolDomainFromName(school?.name ?? "school");
+
+        const year = new Date().getFullYear();
+        let settings = await tx.schoolSettings.findUnique({ where: { schoolId } });
+        if (!settings) {
+          settings = await tx.schoolSettings.create({
+            data: { schoolId, admissionPrefix: "ADM", rollNoPrefix: "", admissionCounter: 0 },
+          });
+        }
+        const nextNum = settings.admissionCounter + 1;
+        const admissionNumber =
+          `${settings.admissionPrefix}/${year}/${String(nextNum).padStart(3, "0")}`;
+        
+        // Check if admission number already exists (race condition protection)
+        const existingAdmission = await tx.student.findUnique({
+          where: { admissionNumber },
+          select: { id: true },
+        });
+        if (existingAdmission) {
+          throw new Error("Admission number conflict. Please try again.");
+        }
+
+        await tx.schoolSettings.update({
+          where: { schoolId },
+          data: { admissionCounter: nextNum },
+        });
+
+        const rollNoPrefix = settings.rollNoPrefix || "";
+        const finalRollNo =
+          typeof rollNo === "string" && rollNo.trim()
+            ? rollNo.trim()
+            : rollNoPrefix
+              ? `${rollNoPrefix}${nextNum}`
+              : String(nextNum);
+
+        const emailTrimmed =
+          typeof effectiveEmailInput === "string" && effectiveEmailInput.trim().length > 0
+            ? effectiveEmailInput.trim()
+            : null;
+        const nameLocal = emailLocalPartFromFullName(effectiveName);
+        let userEmail =
+          emailTrimmed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)
+            ? emailTrimmed
+            : `${nameLocal}@${schoolDomain}`;
+
+        // Check if email already exists and generate alternative if needed
+        let existingUser = await tx.user.findUnique({
+          where: { email: userEmail },
+          select: { id: true },
+        });
+        if (existingUser) {
+          // Generate alternative email if conflict
+          let counter = 1;
+          do {
+            userEmail = `${nameLocal}.${counter}@${schoolDomain}`;
+            existingUser = await tx.user.findUnique({
+              where: { email: userEmail },
+              select: { id: true },
+            });
+            counter++;
+            if (counter > 1000) {
+              throw new Error("Unable to generate unique email. Please try again.");
+            }
+          } while (existingUser);
+        }
+
+        const user = await tx.user.create({
+          data: {
+            name: effectiveName,
+            email: userEmail,
+            password: hashedPassword,
+            role: Role.STUDENT,
+            schoolId,
+          },
+        });
+
+        const address =
+          typeof effectiveAddressInput === "string" && effectiveAddressInput.trim()
+            ? effectiveAddressInput.trim()
+            : null;
+        const gender =
+          typeof effectiveGenderInput === "string" && effectiveGenderInput.trim()
+            ? effectiveGenderInput.trim()
+            : null;
+        const previousSchool =
+          typeof effectivePreviousSchoolInput === "string" && effectivePreviousSchoolInput.trim()
+            ? effectivePreviousSchoolInput.trim()
+            : null;
+
+        const studentRecord = await tx.student.create({
+          data: {
+            userId: user.id,
+            schoolId,
+            admissionNumber,
+            classId: classId ?? null,
+            dob: dobDate,
+            address,
+            gender,
+            previousSchool,
+            fatherName: String(effectiveFatherName).trim(),
+            aadhaarNo: aadhaarCleaned,
+            phoneNo: String(effectivePhoneNo).trim(),
+            rollNo:
+              typeof effectiveRollNo === "string" && effectiveRollNo.trim()
+                ? effectiveRollNo.trim()
+                : finalRollNo,
+          },
+          include: {
+            user: { select: { id: true, name: true, email: true } },
+            class: true,
+          },
+        });
+
+        if (applicationToLink) {
+          await tx.studentApplication.update({
+            where: { id: applicationToLink.id },
+            data: { studentId: studentRecord.id },
+          });
+        }
+
+        const finalFee = totalFee * (1 - safeDiscount / 100);
+        await tx.studentFee.create({
+          data: {
+            studentId: studentRecord.id,
+            totalFee,
+            discountPercent: safeDiscount,
+            finalFee,
+            amountPaid: 0,
+            remainingFee: finalFee,
+            installments: 3,
+          },
+        });
+
+        // Create (or link) StudentApplication to keep all admission fields for this student.
+        // This lets the "Student creation section" store full admission data without expanding Student table.
+        if (!applicationToLink) {
+          const classRow = classId
+            ? await tx.class.findUnique({ where: { id: classId }, select: { name: true, section: true } })
+            : null;
+
+          const year2 = new Date().getFullYear();
+          const appNo = `APP/${year2}/${randomUUID().slice(0, 8).toUpperCase()}`;
+
+          await tx.studentApplication.create({
+            data: {
+              schoolId,
+              classId: classId ?? null,
+              className: classRow?.name ?? null,
+              section: classRow?.section ?? null,
+              studentId: studentRecord.id,
+              applicationNo: appNo,
+              fedenaNo: null,
+              admissionNo: null,
+              gradeSought: "GRADE_1",
+              boardingType: "SEMI_RESIDENTIAL",
+              totalFee,
+              discountPercent: safeDiscount,
+              rollNo: typeof effectiveRollNo === "string" && effectiveRollNo.trim() ? effectiveRollNo.trim() : null,
+              firstName: String(effectiveName).split(" ")[0] || "Student",
+              middleName: null,
+              lastName: String(effectiveName).split(" ").slice(1).join(" ") || "Student",
+              gender: String(effectiveGenderInput || "Male").toLowerCase().startsWith("f") ? "FEMALE" : "MALE",
+              dateOfBirth: dobDate,
+              aadharNo: aadhaarCleaned,
+              firstLanguage: typeof firstLanguage === "string" && firstLanguage.trim() ? firstLanguage.trim() : "English",
+              nationality: typeof nationality === "string" && nationality.trim() ? nationality.trim() : "Indian",
+              languagesAtHome:
+                typeof languagesAtHome === "string" && languagesAtHome.trim() ? languagesAtHome.trim() : "English",
+              caste: typeof caste === "string" && caste.trim() ? caste.trim() : null,
+              religion: typeof religion === "string" && religion.trim() ? religion.trim() : null,
+              houseNo: typeof houseNo === "string" && houseNo.trim() ? houseNo.trim() : (typeof effectiveAddressInput === "string" && effectiveAddressInput.trim() ? effectiveAddressInput.trim() : "-"),
+              street: typeof street === "string" && street.trim() ? street.trim() : "-",
+              city: typeof city === "string" && city.trim() ? city.trim() : "-",
+              town: typeof town === "string" && town.trim() ? town.trim() : null,
+              state: typeof state === "string" && state.trim() ? state.trim() : "-",
+              pinCode: typeof pinCode === "string" && pinCode.trim() ? pinCode.trim() : "-",
+              parentName: String(effectiveFatherName).trim(),
+              parentOccupation: typeof parentOccupation === "string" && parentOccupation.trim() ? parentOccupation.trim() : "-",
+              officeAddress: typeof officeAddress === "string" && officeAddress.trim() ? officeAddress.trim() : "-",
+              parentPhone: String(effectivePhoneNo).trim(),
+              parentEmail: typeof effectiveEmailInput === "string" && effectiveEmailInput.trim() ? effectiveEmailInput.trim() : userEmail,
+              parentAadharNo: typeof parentAadharNo === "string" && parentAadharNo.trim() ? parentAadharNo.trim() : `${aadhaarCleaned.slice(0, 8)}0000`,
+              parentWhatsapp: typeof parentWhatsapp === "string" && parentWhatsapp.trim() ? parentWhatsapp.trim() : String(effectivePhoneNo).trim(),
+              bankAccountNo: typeof bankAccountNo === "string" && bankAccountNo.trim() ? bankAccountNo.trim() : "-",
+              previousSchoolName: typeof effectivePreviousSchoolInput === "string" && effectivePreviousSchoolInput.trim() ? effectivePreviousSchoolInput.trim() : "-",
+              previousSchoolAddress: typeof previousSchoolAddress === "string" && previousSchoolAddress.trim() ? previousSchoolAddress.trim() : "-",
+              emergencyFatherNo: typeof emergencyFatherNo === "string" && emergencyFatherNo.trim() ? emergencyFatherNo.trim() : String(effectivePhoneNo).trim(),
+              emergencyMotherNo: typeof emergencyMotherNo === "string" && emergencyMotherNo.trim() ? emergencyMotherNo.trim() : String(effectivePhoneNo).trim(),
+              emergencyGuardianNo: typeof emergencyGuardianNo === "string" && emergencyGuardianNo.trim() ? emergencyGuardianNo.trim() : String(effectivePhoneNo).trim(),
+            },
+          });
+        }
+
+        return studentRecord;
+      },
+      {
+        maxWait: 10000, // Maximum time to wait for a transaction slot (10 seconds)
+        timeout: 20000, // Maximum time the transaction can run (20 seconds)
+      }
+    );
+
+    console.log("Student created successfully:", {
+      id: student.id,
+      name: student.user?.name,
+      admissionNumber: student.admissionNumber,
+      classId: student.classId,
+      className: student.class ? `${student.class.name}${student.class.section ? ` • ${student.class.section}` : ""}` : "Not assigned",
+    });
+
+    return NextResponse.json(
+      { message: "Student created under your school", student },
+      { status: 201 }
+    );
+  } catch (error: unknown) {
+    console.error("Student creation error:", error);
+    
+    const err = error as { code?: string; message?: string; meta?: { target?: string[] } };
+    // Handle transaction timeout errors
+    if (err?.code === "P1008" || err?.message?.includes("transaction") || err?.message?.includes("timeout")) {
+      return NextResponse.json(
+        { message: "Transaction timeout. Please try again." },
+        { status: 408 }
+      );
+    }
+
+    // Handle Prisma unique constraint violations
+    if (err?.code === "P2002") {
+      const target = err?.meta?.target;
+      const field = Array.isArray(target) ? target[0] : undefined;
+      if (field === "email") {
+        return NextResponse.json(
+          { message: "Email already exists. Please use a different email or leave it blank to auto-generate." },
+          { status: 400 }
+        );
+      }
+      if (field === "admissionNumber") {
+        return NextResponse.json(
+          { message: "Admission number conflict. Please try again." },
+          { status: 400 }
+        );
+      }
+      if (field === "aadhaarNo") {
+        return NextResponse.json(
+          { message: "Aadhaar number already exists. Please check the Aadhaar number." },
+          { status: 400 }
+        );
+      }
+      if (field === "userId") {
+        return NextResponse.json(
+          { message: "User already exists for this student." },
+          { status: 400 }
+        );
+      }
+      return NextResponse.json(
+        { message: `Duplicate entry: ${field || "unknown field"}. Please check your input.` },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json(
+      { message: err?.message ?? "Internal server error" },
+      { status: 500 }
+    );
+  }
+}
