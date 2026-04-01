@@ -15,7 +15,6 @@ interface UserFormData {
   email: string;
   role: "SCHOOLADMIN" | "TEACHER" | "STUDENT";
   designation?: string;
-  username: string;
   password?: string;
   confirmPassword?: string;
   allowedFeatures: string[];
@@ -70,7 +69,6 @@ export default function UserForm({ mode = "create", initialData }: UserFormProps
       email: "",
       role: "TEACHER",
       designation: "",
-      username: "",
       password: "",
       confirmPassword: "",
       allowedFeatures: [],
@@ -102,7 +100,10 @@ export default function UserForm({ mode = "create", initialData }: UserFormProps
     if (userId && !initialData) {
       const fetchUser = async () => {
         try {
-          const res = await fetch(`/api/user/${userId}`);
+          const res = await fetch(`/api/user/${userId}`, {
+            credentials: "include",
+            cache: "no-store",
+          });
           if (!res.ok) throw new Error("Failed to fetch user");
           const userData = await res.json();
           const joinDate = userData.joiningDate
@@ -113,7 +114,6 @@ export default function UserForm({ mode = "create", initialData }: UserFormProps
             email: userData.email || "",
             role: userData.role || "TEACHER",
             designation: userData.designation || "",
-            username: userData.username || "",
             password: "",
             confirmPassword: "",
             allowedFeatures: userData.allowedFeatures || [],
@@ -156,7 +156,10 @@ export default function UserForm({ mode = "create", initialData }: UserFormProps
     setEmailSettingsLoading(true);
     (async () => {
       try {
-        const res = await fetch("/api/school/settings", { credentials: "include" });
+        const res = await fetch("/api/school/settings", {
+          credentials: "include",
+          cache: "no-store",
+        });
         const data = await res.json();
         if (!active) return;
         const domain = typeof data?.settings?.emailDomain === "string" ? data.settings.emailDomain.trim() : "";
@@ -191,14 +194,6 @@ export default function UserForm({ mode = "create", initialData }: UserFormProps
       setError("Full name is required");
       return false;
     }
-    if (!formData.username.trim()) {
-      setError("Username is required");
-      return false;
-    }
-    if (formData.username.length < 3) {
-      setError("Username must be at least 3 characters");
-      return false;
-    }
     if (mode === "create" && !formData.password) {
       setError("Password is required");
       return false;
@@ -230,7 +225,6 @@ export default function UserForm({ mode = "create", initialData }: UserFormProps
         name: formData.name,
         role: formData.role,
         designation: formData.designation,
-        username: formData.username,
         allowedFeatures: formData.allowedFeatures,
         ...(formData.password && { password: formData.password }),
       };
@@ -249,6 +243,7 @@ export default function UserForm({ mode = "create", initialData }: UserFormProps
       const res = await fetch(endpoint, {
         method,
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -263,6 +258,7 @@ export default function UserForm({ mode = "create", initialData }: UserFormProps
         const params = new URLSearchParams(searchParams.toString());
         params.set("tab", "add-user");
         params.set("view", "all");
+        params.delete("userId");
         router.push(`?${params.toString()}`);
       }, 1500);
     } catch (err) {
@@ -336,15 +332,6 @@ export default function UserForm({ mode = "create", initialData }: UserFormProps
                 {emailSettingsLoading ? "" : schoolEmailDomain ? ` (${schoolEmailDomain})` : ""}.
               </p>
             </div>
-            <InputField
-              label="Username"
-              value={formData.username}
-              onChange={(v) => handleChange("username", v)}
-              placeholder="Enter username"
-              icon={<User className="w-4 h-4" />}
-              required
-            />
-
             <InputField
               label={`Password ${mode === "create" ? "" : "(Leave blank to keep unchanged)"}`}
               value={formData.password || ""}
@@ -636,6 +623,7 @@ export default function UserForm({ mode = "create", initialData }: UserFormProps
             const params = new URLSearchParams(searchParams.toString());
             params.set("tab", "add-user");
             params.set("view", "all");
+            params.delete("userId");
             router.push(`?${params.toString()}`);
           }}
           disabled={submitting}
