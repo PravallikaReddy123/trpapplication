@@ -61,6 +61,17 @@ export default function StudentLeave() {
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
 
+  const applyLeaveUpdate = useCallback((updatedLeave: StudentLeaveItem) => {
+    setPendingLeaves((prev) => prev.filter((leave) => leave.id !== updatedLeave.id));
+    setAllLeaves((prev) => {
+      const existing = prev.some((leave) => leave.id === updatedLeave.id);
+      if (!existing) {
+        return [updatedLeave, ...prev];
+      }
+      return prev.map((leave) => (leave.id === updatedLeave.id ? updatedLeave : leave));
+    });
+  }, []);
+
   const fetchPending = useCallback(async () => {
     try {
       const res = await fetch("/api/student-leaves/pending");
@@ -93,9 +104,14 @@ export default function StudentLeave() {
     setActionId(id);
     try {
       const res = await fetch(`/api/student-leaves/${id}/approve`, { method: "PATCH" });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        await fetchPending();
-        await fetchAll();
+        if (data?.leave) {
+          applyLeaveUpdate(data.leave as StudentLeaveItem);
+        } else {
+          await fetchPending();
+          await fetchAll();
+        }
       }
     } finally {
       setActionId(null);
@@ -110,9 +126,14 @@ export default function StudentLeave() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        await fetchPending();
-        await fetchAll();
+        if (data?.leave) {
+          applyLeaveUpdate(data.leave as StudentLeaveItem);
+        } else {
+          await fetchPending();
+          await fetchAll();
+        }
       }
     } finally {
       setActionId(null);

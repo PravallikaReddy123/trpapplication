@@ -141,9 +141,33 @@ export default function ParentLeavesTab() {
         setError(data?.message || "Failed to submit leave");
         return;
       }
+      if (data?.leave) {
+        setMyLeaves((prev) => [
+          {
+            id: String(data.leave.id ?? ""),
+            leaveType: String(data.leave.leaveType ?? formData.leaveType),
+            reason: data.leave.reason ?? formData.reason.trim(),
+            fromDate:
+              typeof data.leave.fromDate === "string"
+                ? data.leave.fromDate
+                : formData.startDate,
+            toDate:
+              typeof data.leave.toDate === "string"
+                ? data.leave.toDate
+                : formData.endDate,
+            status: String(data.leave.status ?? "PENDING"),
+            remarks: data.leave.remarks ?? null,
+            createdAt:
+              typeof data.leave.createdAt === "string"
+                ? data.leave.createdAt
+                : new Date().toISOString(),
+          },
+          ...prev,
+        ]);
+      }
       setFormData({ leaveType: "SICK", startDate: "", endDate: "", reason: "" });
       setActiveTab("HISTORY");
-      await fetchMyLeaves();
+      void fetchMyLeaves();
     } catch {
       setError("Something went wrong");
     } finally {
