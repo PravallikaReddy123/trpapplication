@@ -37,7 +37,6 @@ export async function POST(req: NextRequest) {
       email,
       role,
       designation,
-      username,
       password,
       allowedFeatures,
       // Teacher-specific
@@ -53,7 +52,7 @@ export async function POST(req: NextRequest) {
     } = body;
 
     // Validation
-    if (!name || !role || !username || !password) {
+    if (!name || !role || !password) {
       return NextResponse.json(
         { message: "Missing required fields" },
         { status: 400 }

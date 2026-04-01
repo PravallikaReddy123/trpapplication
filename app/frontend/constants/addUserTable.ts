@@ -4,7 +4,6 @@ export interface IUser {
   email: string;
   role: string;
   createdAt: string;
-  username?: string;
   designation?: string;
   allowedFeatures?: string[];
    photoUrl?: string | null;

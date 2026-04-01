@@ -85,6 +85,7 @@ export default function AddUser() {
     try {
       const res = await fetch(`/api/user/${deleteModal.userId}`, {
         method: "DELETE",
+        credentials: "include",
       });
 
       if (!res.ok) {
@@ -93,7 +94,8 @@ export default function AddUser() {
       }
 
       setDeleteModal({ isOpen: false, userId: "", userName: "" });
-      setUsers(users.filter((u) => u.id !== deleteModal.userId));
+      setUsers((prev) => prev.filter((u) => u.id !== deleteModal.userId));
+      setPage(1);
     } catch (error) {
       throw error;
     }
@@ -246,25 +248,7 @@ export default function AddUser() {
           animate={{ opacity: 1, y: 0 }}
         >
           <UserForm
-            mode={editingUser ? "edit" : "create"}
-            initialData={
-              editingUser
-                ? {
-                  name: editingUser.name,
-                  email: editingUser.email,
-                  role: editingUser.role as any,
-                  designation:
-                    (editingUser as any).designation ??
-                    (editingUser as any).subject ??
-                    "",
-                  username: (editingUser as any).username ?? "",
-                  password: "",
-                  confirmPassword: "",
-                  allowedFeatures:
-                    (editingUser as any).allowedFeatures ?? [],
-                }
-                : undefined
-            }
+            mode={editingUserId ? "edit" : "create"}
           />
         </motion.div>
       )}

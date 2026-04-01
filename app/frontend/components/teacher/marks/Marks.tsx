@@ -33,6 +33,7 @@ type MarkApi = {
   marks: number;
   totalMarks: number;
   grade: string | null;
+  examType?: string | null;
   createdAt: string;
 };
 
@@ -66,6 +67,7 @@ export default function TeacherMarksTab() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string>("");
   const pageSize = 8;
 
   const classOptions = classes.map((c) => ({
@@ -118,8 +120,12 @@ export default function TeacherMarksTab() {
       }
 
       const [studentsRes, marksRes] = await Promise.all([
-        fetch(`/api/class/students?classId=${encodeURIComponent(form.classId)}`),
-        fetch(`/api/marks/view?${params.toString()}`),
+        fetch(`/api/class/students?classId=${encodeURIComponent(form.classId)}`, {
+          cache: "no-store",
+        }),
+        fetch(`/api/marks/view?${params.toString()}`, {
+          cache: "no-store",
+        }),
       ]);
       const studentsData = await studentsRes.json();
       const marksData = await marksRes.json();
@@ -146,6 +152,7 @@ export default function TeacherMarksTab() {
         };
       });
       setRows(newRows);
+      setSaveMessage("");
     } catch {
       setRows([]);
     } finally {
@@ -257,39 +264,77 @@ export default function TeacherMarksTab() {
   const handleSaveAll = async () => {
     if (pending > 0 || !form.classId) return;
     setSaveLoading(true);
+    setSaveMessage("");
     try {
-      let hasError = false;
-      for (const row of rows) {
-        if (row.marks === "") continue;
-        const payload = {
-          studentId: row.id,
-          classId: form.classId,
-          subject: form.subject,
-          marks: Number(row.marks),
-          totalMarks: row.maxMarks,
-          examType: form.examType || null,
-        };
-        if (row.markId) {
-          const res = await fetch(`/api/marks/${row.markId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              marks: payload.marks,
-              totalMarks: payload.totalMarks,
-              examType: payload.examType,
-            }),
-          });
-          if (!res.ok) hasError = true;
-        } else {
-          const res = await fetch("/api/marks/create", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-          if (!res.ok) hasError = true;
-        }
+      const editableRows = rows.filter((row) => row.marks !== "");
+      const results = await Promise.all(
+        editableRows.map(async (row) => {
+          const payload = {
+            studentId: row.id,
+            classId: form.classId,
+            subject: form.subject,
+            marks: Number(row.marks),
+            totalMarks: row.maxMarks,
+            examType: form.examType || null,
+          };
+
+          const res = row.markId
+            ? await fetch(`/api/marks/${row.markId}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  marks: payload.marks,
+                  totalMarks: payload.totalMarks,
+                  examType: payload.examType,
+                }),
+              })
+            : await fetch("/api/marks/create", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              });
+
+          const data = await res.json().catch(() => null);
+          return {
+            rowId: row.id,
+            ok: res.ok,
+            mark: data?.mark as MarkApi | undefined,
+            message: data?.message as string | undefined,
+          };
+        })
+      );
+
+      const successMap = new Map(
+        results
+          .filter((result) => result.ok && result.mark)
+          .map((result) => [result.rowId, result.mark as MarkApi])
+      );
+
+      if (successMap.size > 0) {
+        setRows((prev) =>
+          prev.map((row) => {
+            const savedMark = successMap.get(row.id);
+            if (!savedMark) return row;
+            return {
+              ...row,
+              marks: savedMark.marks,
+              maxMarks: savedMark.totalMarks,
+              markId: savedMark.id,
+            };
+          })
+        );
       }
-      if (!hasError) await fetchStudentsAndMarks();
+
+      const failed = results.filter((result) => !result.ok);
+      if (failed.length > 0) {
+        setSaveMessage(
+          failed[0]?.message || `${failed.length} mark entr${failed.length > 1 ? "ies" : "y"} failed to save.`
+        );
+      } else {
+        setSaveMessage("Marks updated successfully.");
+      }
+
+      await fetchStudentsAndMarks();
     } finally {
       setSaveLoading(false);
     }
@@ -541,6 +586,9 @@ export default function TeacherMarksTab() {
                     PENDING <span className="font-semibold ml-1">{pending}</span>
                   </span>
                 </div>
+                {saveMessage ? (
+                  <span className="text-sm text-white/70">{saveMessage}</span>
+                ) : null}
                 <button
                   disabled={pending > 0 || saveLoading}
                   onClick={handleSaveAll}
