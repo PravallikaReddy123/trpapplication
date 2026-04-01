@@ -8,10 +8,10 @@ import type { NewsFeedItem } from "../../../hooks/useNewsFeeds";
 interface PostCardProps {
   post: NewsFeedItem;
   onLike: (id: string) => void;
-
+  isLiking?: boolean;
 }
 
-export default function PostCard({ post, onLike }: PostCardProps) {
+export default function PostCard({ post, onLike, isLiking = false }: PostCardProps) {
   const photoUrl = post.createdBy?.photoUrl ?? "https://ui-avatars.com/api/?name=School&background=random&color=fff&size=128";
   const authorName = post.createdBy?.name ?? "School";
   const timeStr = formatRelativeTime(post.createdAt);
@@ -88,7 +88,8 @@ export default function PostCard({ post, onLike }: PostCardProps) {
         <button
           type="button"
           onClick={() => onLike(post.id)}
-          className="flex items-center gap-2 text-gray-300 mb-3 sm:mb-4 cursor-pointer hover:text-red-400 transition touch-manipulation"
+          disabled={isLiking}
+          className="mb-3 flex items-center gap-2 text-gray-300 transition hover:text-red-400 touch-manipulation disabled:cursor-not-allowed disabled:opacity-70 sm:mb-4"
         >
           <Heart
             className={`w-4 h-4 sm:w-5 sm:h-5 transition ${post.likedByMe ? "fill-red-500 text-red-500" : ""}`}
