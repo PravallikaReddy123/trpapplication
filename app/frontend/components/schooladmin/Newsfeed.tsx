@@ -5,7 +5,7 @@ import CreatePost from "./newsfeed/CreatePost";
 import PostCard from "./newsfeed/PostCard";
 
 export default function NewsFeed() {
-  const { feeds, loading, error, refetch, toggleLike } = useNewsFeeds();
+  const { feeds, loading, error, refetch, toggleLike, likingIds } = useNewsFeeds();
 
   return (
     <div className="min-h-screen text-white font-sans p-3 sm:p-4 md:p-6 lg:p-8">
@@ -34,7 +34,12 @@ export default function NewsFeed() {
         ) : (
           <div className="space-y-4 md:space-y-6">
             {feeds.map((post) => (
-              <PostCard key={post.id} post={post} onLike={toggleLike} />
+              <PostCard
+                key={post.id}
+                post={post}
+                onLike={toggleLike}
+                isLiking={Boolean(likingIds[post.id])}
+              />
             ))}
           </div>
         )}

@@ -18,6 +18,7 @@ export function useNewsFeeds() {
   const [feeds, setFeeds] = useState<NewsFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [likingIds, setLikingIds] = useState<Record<string, boolean>>({});
 
   const fetchFeeds = useCallback(async () => {
     setLoading(true);
@@ -25,7 +26,6 @@ export function useNewsFeeds() {
     try {
       const res = await fetch("/api/newsfeed/list", { credentials: "same-origin" });
       const data = await res.json();
-      console.log("Fetched news feeds:", data);
       if (!res.ok) throw new Error(data.message || "Failed to load news feed");
       const list = Array.isArray(data.newsFeeds) ? data.newsFeeds : [];
       setFeeds(
@@ -62,6 +62,21 @@ export function useNewsFeeds() {
   }, [fetchFeeds]);
 
   const toggleLike = useCallback(async (id: string) => {
+    const currentFeed = feeds.find((feed) => feed.id === id);
+    if (!currentFeed || likingIds[id]) return;
+
+    const nextLiked = !currentFeed.likedByMe;
+    const nextLikes = Math.max(0, currentFeed.likes + (nextLiked ? 1 : -1));
+
+    setLikingIds((prev) => ({ ...prev, [id]: true }));
+    setFeeds((prev) =>
+      prev.map((f) =>
+        f.id === id
+          ? { ...f, likedByMe: nextLiked, likes: nextLikes }
+          : f
+      )
+    );
+
     try {
       const res = await fetch(`/api/newsfeed/${id}/like`, { method: "POST" });
       const data = await res.json();
@@ -69,14 +84,30 @@ export function useNewsFeeds() {
       setFeeds((prev) =>
         prev.map((f) =>
           f.id === id
-            ? { ...f, likes: data.likes ?? f.likes, likedByMe: data.liked ?? f.likedByMe }
+            ? {
+                ...f,
+                likes: typeof data.likes === "number" ? data.likes : nextLikes,
+                likedByMe: typeof data.liked === "boolean" ? data.liked : nextLiked,
+              }
             : f
         )
       );
     } catch {
-      // keep UI state
+      setFeeds((prev) =>
+        prev.map((f) =>
+          f.id === id
+            ? { ...f, likedByMe: currentFeed.likedByMe, likes: currentFeed.likes }
+            : f
+        )
+      );
+    } finally {
+      setLikingIds((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
     }
-  }, []);
+  }, [feeds, likingIds]);
 
-  return { feeds, loading, error, refetch: fetchFeeds, toggleLike };
+  return { feeds, loading, error, refetch: fetchFeeds, toggleLike, likingIds };
 }
